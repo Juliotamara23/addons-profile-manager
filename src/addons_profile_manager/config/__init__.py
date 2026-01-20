@@ -1,0 +1,1 @@
+"""Configuration module for WoW Addon Profile Manager."""
