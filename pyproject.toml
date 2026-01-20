@@ -50,10 +50,10 @@ addons-profile-manager = "addons_profile_manager.cli:main"
 wow-addon-manager = "addons_profile_manager.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/addons-profile-manager"
-Repository = "https://github.com/yourusername/addons-profile-manager"
+Homepage = "https://github.com/Juliotamara23/addons-profile-manager"
+Repository = "https://github.com/Juliotamara23/addons-profile-manager"
 Documentation = "https://addons-profile-manager.readthedocs.io"
-"Bug Tracker" = "https://github.com/yourusername/addons-profile-manager/issues"
+"Bug Tracker" = "https://github.com/Juliotamara23/addons-profile-manager/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
