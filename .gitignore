@@ -1,2 +1,5 @@
 /agents
 /docs
+.venv
+src/addons_profile_manager.egg-info
+.ruff_cache
