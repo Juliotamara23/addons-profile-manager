@@ -28,7 +28,7 @@ Una herramienta Python moderna para gestionar configuraciones de addons de World
 
 ```bash
 # Clonar repositorio
-git clone https://github.com/tu-usuario/addons-profile-manager.git
+git clone https://github.com/juliotamara23/addons-profile-manager.git
 cd addons-profile-manager
 
 # Crear entorno virtual
@@ -61,6 +61,9 @@ python -m src.addons_profile_manager
 2. Especificar ruta manualmente
 3. Salir
 ```
+
+### Guia de usuario
+Para mas información de como usar el programa puedes encontrar la guiaen el archivo [Guia menu.md](Guia%20menu.md)
 
 ### Formatos de Ruta Soportados
 

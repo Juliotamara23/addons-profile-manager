@@ -1,4 +1,10 @@
-# 📖 Guía Rápida: Nuevo Flujo del Menú
+# 📖 Guía Rápida: Flujo del Menú
+
+## ✅ Notas de uso
+
+- ✅ El menú te guía paso a paso
+- ✅ Solo necesitas ingresar números (1, 2, 3)
+- ✅ Mensajes claros en español
 
 ## 🚀 Menú Inicial
 
@@ -72,12 +78,3 @@ Select account: 1
 ```
 
 ---
-
-## ✅ Notas Importantes
-
-- ✅ El menú te guía paso a paso
-- ✅ Solo necesitas ingresar números (1, 2, 3)
-- ✅ Mensajes claros en español
-- ✅ No más loops al menú principal
-- ✅ Confirmación final antes del backup
-- ✅ Errores detallados si algo falla
