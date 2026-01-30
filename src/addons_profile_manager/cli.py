@@ -9,7 +9,7 @@ import click
 from colorama import Fore, Style, init
 from tqdm import tqdm
 
-from .config.settings import AddonProfile, Config
+from .config.settings import AddonProfile, Config, WoWInstallation
 from .config.constants import Colors, Messages
 from .core.backup import BackupManager
 from .core.scanner import WoWScanner
@@ -65,15 +65,24 @@ class InteractiveMenu:
         self.output = ColoredOutput()
 
         # Runtime state
-        self.selected_installation: Optional[object] = None
+        self.selected_installation: Optional[WoWInstallation] = None
         self.selected_account: Optional[str] = None
         self.selected_addons: List[str] = []
         self.available_addons: List[str] = []
 
     def display_welcome(self) -> None:
-        """Display welcome message."""
-        self.output.header(Messages.WELCOME)
+        """Display welcome message with ASCII banner."""
+        banner = """
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║        WoW Addon Profile Manager                             ║
+║        Gestiona tus perfiles de addons fácilmente            ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+        """
+        print(f"{Fore.CYAN}{banner}{Style.RESET_ALL}")
         self.output.info(Messages.VERSION_INFO.format(version="0.1.0"))
+        print(f"{Fore.WHITE}Respalda y restaura configuraciones de addons de World of Warcraft{Style.RESET_ALL}")
         print()
 
     def display_main_menu(self) -> int:
@@ -94,7 +103,7 @@ class InteractiveMenu:
         except (ValueError, KeyboardInterrupt):
             return 6  # Exit
 
-    async def scan_installations(self) -> List[object]:
+    async def scan_installations(self) -> List[WoWInstallation]:
         """Scan for WoW installations."""
         self.output.info(Messages.SCANNING_INSTALLATIONS)
 
@@ -103,7 +112,18 @@ class InteractiveMenu:
 
             if not installations:
                 self.output.error(Messages.NO_INSTALLATIONS_FOUND)
-                return []
+                
+                # Offer manual path option
+                choice = input(Messages.MANUAL_PATH_PROMPT + " ").strip().lower()
+                if choice in ['y', 'yes']:
+                    manual_installation = await self._add_manual_installation()
+                    if manual_installation:
+                        installations = [manual_installation]
+                    else:
+                        self.output.error("No valid WoW installation found at specified path.")
+                        return []
+                else:
+                    return []
 
             self.output.success(
                 Messages.FOUND_INSTALLATIONS.format(count=len(installations))
@@ -114,7 +134,7 @@ class InteractiveMenu:
             self.output.error(f"Failed to scan installations: {e}")
             return []
 
-    def display_installations(self, installations: List[object]) -> Optional[object]:
+    def display_installations(self, installations: List[WoWInstallation]) -> Optional[WoWInstallation]:
         """Display found installations and let user select."""
         if not installations:
             return None
@@ -139,7 +159,7 @@ class InteractiveMenu:
         except (ValueError, KeyboardInterrupt):
             return None
 
-    async def select_account(self, installation: object) -> Optional[str]:
+    async def select_account(self, installation: WoWInstallation) -> Optional[str]:
         """Select account from WoW installation."""
         try:
             accounts = self.scanner.get_accounts(installation)
@@ -166,7 +186,7 @@ class InteractiveMenu:
             self.output.error(f"Failed to get accounts: {e}")
             return None
 
-    async def scan_addons(self, installation: object, account_name: str) -> List[str]:
+    async def scan_addons(self, installation: WoWInstallation, account_name: str) -> List[str]:
         """Scan for available addons."""
         try:
             addon_files = self.scanner.get_addon_files(installation, account_name)
@@ -237,12 +257,52 @@ class InteractiveMenu:
 
         return selected
 
+    async def _add_manual_installation(self) -> Optional[WoWInstallation]:
+        """Add a manually specified WoW installation."""
+        self.output.info(Messages.MANUAL_PATH_INSTRUCTIONS)
+        print(f"{Fore.YELLOW}{Messages.MANUAL_PATH_EXAMPLE}{Style.RESET_ALL}")
+        print()
+        
+        while True:
+            try:
+                path_input = input(f"{Fore.CYAN}WoW installation path: {Style.RESET_ALL}").strip()
+                if not path_input:
+                    return None
+                
+                # Remove quotes if user pasted path with quotes
+                path_input = path_input.strip('"').strip("'")
+                
+                path = Path(path_input)
+                if not path.exists():
+                    self.output.error(f"Path does not exist: {path}")
+                    continue
+                
+                installation = self.scanner.add_manual_installation(path)
+                if installation:
+                    version_str = installation.version.value.title()
+                    self.output.success(f"Found WoW installation: {version_str}")
+                    return installation
+                else:
+                    self.output.error("No valid WoW installation found at the specified path.")
+                    self.output.info("The path should contain WTF/Account folders or be a direct SavedVariables path.")
+                    
+                    retry = input("Try another path? (y/n): ").strip().lower()
+                    if retry not in ['y', 'yes']:
+                        return None
+                    
+            except KeyboardInterrupt:
+                return None
+            except Exception as e:
+                self.output.error(f"Error processing path: {e}")
+                return None
+
     def select_destination(self) -> Optional[Path]:
         """Select backup destination directory."""
         self.output.header("=== Backup Destination ===")
 
         default_path = self.config.backup.destination_path
         print(f"Default destination: {default_path}")
+        print(f"{Fore.YELLOW}Example: C:\\Backups\\WoW_Addons (you can copy-paste paths directly){Style.RESET_ALL}")
         print()
 
         user_input = input(
@@ -253,6 +313,8 @@ class InteractiveMenu:
             return default_path
 
         try:
+            # Remove quotes if user pasted path with quotes
+            user_input = user_input.strip('"').strip("'")
             dest_path = Path(user_input)
             dest_path.mkdir(parents=True, exist_ok=True)
             return dest_path
@@ -303,13 +365,29 @@ class InteractiveMenu:
 
             if result.success:
                 self.output.success(Messages.BACKUP_COMPLETE)
-                if result.validation_errors:
-                    self.output.warning(
-                        f"Found {len(result.validation_errors)} validation errors"
-                    )
                 return True
             else:
-                self.output.error(Messages.BACKUP_FAILED.format(error="Unknown error"))
+                # Collect and display specific errors
+                error_msgs = []
+                for file_path, error in result.failed_files:
+                    error_msgs.append(f"Failed to process {file_path}: {error}")
+                
+                for val_error in result.validation_errors:
+                    error_msgs.append(str(val_error))
+                
+                if error_msgs:
+                    self.output.error("Backup encountered errors:")
+                    for idx, msg in enumerate(error_msgs):
+                        if idx < 5:  # Limit display to 5 errors
+                            self.output.error(f"  - {msg}")
+                        else:
+                            remaining = len(error_msgs) - 5
+                            self.output.error(f"  ...and {remaining} more errors.")
+                            break
+                    self.output.error(Messages.BACKUP_FAILED.format(error="See detailed errors above"))
+                else:
+                    self.output.error(Messages.BACKUP_FAILED.format(error="Unknown error (no failure details recorded)"))
+                
                 return False
 
         except AddonManagerError as e:
@@ -349,56 +427,124 @@ def main(verbose: bool, debug: bool, config: Optional[str]) -> int:
     menu = InteractiveMenu(app_config)
 
     async def run_interactive():
+        """Interactive flow with guided steps."""
         menu.display_welcome()
-
-        while True:
-            choice = menu.display_main_menu()
-
-            if choice == 1:  # Scan installations
-                installations = await menu.scan_installations()
-                if installations:
-                    menu.selected_installation = menu.display_installations(
-                        installations
-                    )
-
-            elif choice == 2:  # List addons
-                if menu.selected_installation and menu.selected_account:
-                    menu.available_addons = await menu.scan_addons(
-                        menu.selected_installation, menu.selected_account
-                    )
-                    if menu.available_addons:
-                        menu.output.header("=== Available Addons ===")
-                        for addon in menu.available_addons:
-                            print(f"  • {addon}")
-                else:
-                    menu.output.warning("Please select installation and account first.")
-
-            elif choice == 3:  # Select addons
-                if menu.available_addons:
-                    menu.selected_addons = menu.select_addons(menu.available_addons)
-                    menu.output.success(f"Selected {len(menu.selected_addons)} addons")
-                else:
-                    menu.output.warning("No addons available. Please scan first.")
-
-            elif choice == 4:  # Choose destination
-                dest = menu.select_destination()
-                if dest:
-                    menu.config.backup.destination_path = dest
-                    menu.output.success(f"Destination set to: {dest}")
-
-            elif choice == 5:  # Start backup
-                if not menu.selected_installation:
-                    menu.output.warning("Please select WoW installation first.")
-                elif not menu.selected_account:
-                    menu.output.warning("Please select account first.")
-                elif not menu.selected_addons:
-                    menu.output.warning("Please select addons first.")
-                else:
-                    await menu.create_backup()
-
-            elif choice == 6:  # Exit
-                menu.output.success("Goodbye!")
-                break
+        
+        # Step 1: Get WoW installation (initial menu with 2 options)
+        menu.output.header("\n=== Selecciona cómo encontrar tu instalación de WoW ===")
+        print(f"{Fore.CYAN}1.{Style.RESET_ALL} Buscar automáticamente (escanea rutas comunes)")
+        print(f"{Fore.CYAN}2.{Style.RESET_ALL} Especificar ruta manualmente")
+        print(f"{Fore.CYAN}3.{Style.RESET_ALL} Salir")
+        print()
+        
+        try:
+            initial_choice = int(input("Selecciona una opción: "))
+        except (ValueError, KeyboardInterrupt):
+            menu.output.warning("Operación cancelada.")
+            return
+        
+        if initial_choice == 3:
+            menu.output.success("¡Hasta luego!")
+            return
+        elif initial_choice == 1:
+            # Auto-scan
+            installations = await menu.scan_installations()
+            if installations:
+                menu.selected_installation = menu.display_installations(installations)
+            else:
+                menu.output.error("No se encontraron instalaciones.")
+                return
+        elif initial_choice == 2:
+            # Manual path
+            manual_installation = await menu._add_manual_installation()
+            if manual_installation:
+                menu.selected_installation = manual_installation
+            else:
+                menu.output.error("No se pudo agregar instalación manual.")
+                return
+        else:
+            menu.output.error("Opción inválida.")
+            return
+        
+        if not menu.selected_installation:
+            menu.output.warning("No se seleccionó instalación. Saliendo...")
+            return
+        
+        # Step 2: Select account
+        menu.output.header("\n=== Selecciona una cuenta ===")
+        menu.selected_account = await menu.select_account(menu.selected_installation)
+        
+        if not menu.selected_account:
+            menu.output.warning("No se seleccionó cuenta. Saliendo...")
+            return
+        
+        # Step 3: Scan and select addons
+        menu.output.header("\n=== Escaneando addons ===")
+        menu.available_addons = await menu.scan_addons(
+            menu.selected_installation, menu.selected_account
+        )
+        
+        if not menu.available_addons:
+            menu.output.error("No se encontraron addons.")
+            return
+        
+        menu.output.success(f"Encontrados {len(menu.available_addons)} addons")
+        print()
+        
+        # Ask if user wants to select specific addons or backup all
+        print(f"{Fore.CYAN}¿Qué deseas hacer?{Style.RESET_ALL}")
+        print("1. Seleccionar addons específicos")
+        print("2. Respaldar todos los addons")
+        print()
+        
+        try:
+            addon_choice = int(input("Selecciona una opción: "))
+        except (ValueError, KeyboardInterrupt):
+            menu.output.warning("Operación cancelada.")
+            return
+        
+        if addon_choice == 1:
+            menu.selected_addons = menu.select_addons(menu.available_addons)
+        elif addon_choice == 2:
+            menu.selected_addons = menu.available_addons.copy()
+            menu.output.success(f"Seleccionados todos los {len(menu.selected_addons)} addons")
+        else:
+            menu.output.error("Opción inválida.")
+            return
+        
+        if not menu.selected_addons:
+            menu.output.warning("No se seleccionaron addons. Saliendo...")
+            return
+        
+        # Step 4: Choose backup destination
+        menu.output.header("\n=== Destino del Backup ===")
+        dest = menu.select_destination()
+        if dest:
+            menu.config.backup.destination_path = dest
+            menu.output.success(f"Destino configurado: {dest}\\Backup\\")
+        else:
+            menu.output.warning("No se configuró destino. Saliendo...")
+            return
+        
+        # Step 5: Confirm and start backup
+        print()
+        menu.output.header("=== Resumen del Backup ===")
+        print(f"  Instalación: {menu.selected_installation.path}")
+        print(f"  Cuenta: {menu.selected_account}")
+        print(f"  Addons: {len(menu.selected_addons)} seleccionados")
+        print(f"  Destino: {menu.config.backup.destination_path}\\Backup\\")
+        print()
+        
+        confirm = input(f"{Fore.YELLOW}¿Iniciar backup? (s/n): {Style.RESET_ALL}").strip().lower()
+        
+        if confirm in ['s', 'si', 'y', 'yes']:
+            success = await menu.create_backup()
+            if success:
+                menu.output.success("\n¡Proceso completado!")
+            else:
+                menu.output.warning("\nEl proceso finalizó con advertencias o errores.")
+        else:
+            menu.output.warning("Backup cancelado.")
 
     try:
         asyncio.run(run_interactive())

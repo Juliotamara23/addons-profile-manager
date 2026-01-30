@@ -67,12 +67,18 @@ class BackupConfig:
     backup_metadata: bool = True
     
     def get_backup_path(self, profile_name: str) -> Path:
-        """Get the full backup path for a profile."""
+        """Get the full backup path for a profile.
+        
+        Creates path structure: destination_path/Backup/profile_name[_timestamp]
+        """
+        # Ensure Backup subfolder is created
+        backup_base = self.destination_path / "Backup"
+        
         if self.create_timestamp_folder:
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            return self.destination_path / f"{profile_name}_{timestamp}"
-        return self.destination_path / profile_name
+            return backup_base / f"{profile_name}_{timestamp}"
+        return backup_base / profile_name
 
 
 @dataclass

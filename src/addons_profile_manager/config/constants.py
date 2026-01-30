@@ -36,6 +36,12 @@ class Messages:
     SCANNING_INSTALLATIONS = "Scanning for WoW installations..."
     FOUND_INSTALLATIONS = "Found {count} WoW installation(s)"
     NO_INSTALLATIONS_FOUND = "No WoW installations found. Please check your installation paths."
+    MANUAL_PATH_PROMPT = "Would you like to specify the WoW installation path manually? (y/n)"
+    MANUAL_PATH_INSTRUCTIONS = "Please enter the path to your World of Warcraft installation:"
+    MANUAL_PATH_EXAMPLE = """Example paths (you can use any of these formats):
+  - Full installation: C:\\Program Files (x86)\\World of Warcraft
+  - Version specific: D:\\Games\\World of Warcraft\\_retail_
+  - Direct SavedVariables: E:\\WoW\\_retail_\\WTF\\Account\\12345678#1\\SavedVariables"""
     SCANNING_ACCOUNTS = "Scanning accounts in {path}"
     FOUND_ACCOUNTS = "Found {count} account(s)"
     SCANNING_ADDONS = "Scanning addon configurations..."
@@ -115,7 +121,7 @@ class Paths:
     """Default paths and directories."""
     
     # Windows paths
-    WINDOWS_PROGRAM_FILES = ["C:/Program Files", "C:/Program Files (x86)"]
+    WINDOWS_PROGRAM_FILES = ["C:/Program Files", "C:/Program Files (x86)", "D:/Expecialtik/"]
     WINDOWS_WOW_DEFAULT = "World of Warcraft"
     
     # macOS paths

@@ -160,10 +160,16 @@ class BackupManager:
         )
         
         backup_path = self.config.get_backup_path(profile.name)
-        available_space = shutil.disk_usage(backup_path.parent).free
+        
+        # Find an existing parent directory for disk space check
+        check_path = backup_path
+        while not check_path.exists() and check_path.parent != check_path:
+            check_path = check_path.parent
+        
+        available_space = shutil.disk_usage(check_path).free
         
         if available_space < total_size:
-            raise InsufficientSpaceError(total_size, available_space, backup_path.parent)
+            raise InsufficientSpaceError(total_size, available_space, check_path)
         
         # Check permissions
         if not backup_path.parent.exists():

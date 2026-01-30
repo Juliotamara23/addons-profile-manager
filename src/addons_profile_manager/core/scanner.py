@@ -99,9 +99,37 @@ class WoWScanner:
         
         return installations
     
+    def _validate_folder_structure(self, path: Path) -> bool:
+        """Validate WoW folder structure without requiring executables."""
+        # Check for WTF/Account structure
+        wtf_dir = path / "WTF"
+        account_dir = wtf_dir / "Account"
+        
+        if not wtf_dir.exists() or not wtf_dir.is_dir():
+            return False
+        
+        if not account_dir.exists() or not account_dir.is_dir():
+            return False
+        
+        # Check if at least one account folder with SavedVariables exists
+        try:
+            for item in account_dir.iterdir():
+                if item.is_dir() and not item.name.startswith('.'):
+                    saved_vars = item / "SavedVariables"
+                    if saved_vars.exists() and saved_vars.is_dir():
+                        return True
+        except PermissionError:
+            pass
+        
+        return False
+    
     def _is_wow_installation(self, path: Path) -> bool:
         """Check if a path contains a WoW installation."""
-        # Look for WoW executable and WTF directory
+        # First try to validate folder structure (more flexible)
+        if self._validate_folder_structure(path):
+            return True
+        
+        # Fallback to checking for WoW executable and WTF directory
         wow_exe_names = ["Wow.exe", "WowClassic.exe", "WowT.exe", "Wow-64.exe"]
         wtf_dir = path / "WTF"
         
@@ -112,9 +140,29 @@ class WoWScanner:
     
     def _detect_wow_version(self, path: Path) -> WoWVersion:
         """Detect the WoW version of an installation."""
+        # Check all parts of the path for version indicators
+        path_str = str(path).lower()
+        path_parts = [p.lower() for p in path.parts]
+        
+        # Check for version folders (_retail_, _classic_, etc.)
+        for part in path_parts:
+            if part == "_retail_":
+                return WoWVersion.RETAIL
+            elif part == "_classic_era_" or part == "_classic_":
+                if "era" in path_str or "vanilla" in path_str:
+                    return WoWVersion.CLASSIC_TBC
+                elif "wrath" in path_str or "wotlk" in path_str:
+                    return WoWVersion.CLASSIC_WOTLK
+                else:
+                    return WoWVersion.CLASSIC
+            elif part == "_ptr_":
+                return WoWVersion.PTR
+            elif part == "_beta_":
+                return WoWVersion.BETA
+        
+        # Fallback to checking folder name
         path_lower = path.name.lower()
         
-        # Check for specific version indicators
         if "classic" in path_lower:
             if "era" in path_lower or "vanilla" in path_lower:
                 return WoWVersion.CLASSIC_TBC
@@ -179,7 +227,10 @@ class WoWScanner:
         return sorted(accounts)
     
     def get_addon_files(self, installation: WoWInstallation, account_name: str) -> Dict[str, List[Path]]:
-        """Get addon SavedVariables files for an account."""
+        """Get addon SavedVariables files for an account.
+        
+        Groups .lua and .lua.bak files under the same addon name.
+        """
         saved_vars_path = installation.get_saved_variables_path(account_name)
         
         if not saved_vars_path.exists():
@@ -188,7 +239,13 @@ class WoWScanner:
         addon_files = {}
         
         try:
-            for file_path in saved_vars_path.glob("*.lua"):
+            # Collect all .lua files (including .lua.bak)
+            lua_files = list(saved_vars_path.glob("*.lua"))
+            lua_bak_files = list(saved_vars_path.glob("*.lua.bak"))
+            
+            all_files = lua_files + lua_bak_files
+            
+            for file_path in all_files:
                 # Skip global files that aren't addon-specific
                 if self._is_addon_file(file_path):
                     addon_name = self._extract_addon_name(file_path)
@@ -219,9 +276,18 @@ class WoWScanner:
         return filename not in non_addon_files
     
     def _extract_addon_name(self, file_path: Path) -> str:
-        """Extract addon name from SavedVariables file."""
-        # Remove .lua extension
-        name = file_path.stem
+        """Extract addon name from SavedVariables file.
+        
+        Handles both .lua and .lua.bak files, returning clean addon name.
+        """
+        # Get filename and remove extensions
+        name = file_path.name
+        
+        # Remove .bak extension if present
+        if name.endswith('.lua.bak'):
+            name = name[:-8]  # Remove .lua.bak
+        elif name.endswith('.lua'):
+            name = name[:-4]  # Remove .lua
         
         # Handle special cases
         if name.startswith('DBM-'):
@@ -280,3 +346,66 @@ class WoWScanner:
             return installation
         
         return None
+    
+    def _find_installation_root_from_savedvariables(self, path: Path) -> Optional[Path]:
+        """Find WoW installation root from a SavedVariables path by traversing upward."""
+        current = path.resolve()
+        
+        # Traverse up the directory tree
+        for _ in range(5):  # Max 5 levels up
+            # Check if current directory looks like WoW installation
+            if self._validate_folder_structure(current):
+                return current
+            
+            # Check for version folders in path
+            if current.name in ["_retail_", "_classic_", "_classic_era_", "_ptr_", "_beta_"]:
+                # This is likely a version folder, check parent
+                if self._validate_folder_structure(current):
+                    return current
+            
+            # Move up one level
+            parent = current.parent
+            if parent == current:  # Reached root
+                break
+            current = parent
+        
+        return None
+    
+    def add_manual_installation(self, path: Path) -> Optional[WoWInstallation]:
+        """Add a manually specified WoW installation.
+        
+        Supports:
+        - Full WoW installation path
+        - Direct SavedVariables path (will traverse up to find installation)
+        - Version-specific paths (_retail_, _classic_, etc.)
+        """
+        path = path.resolve()
+        
+        if not path.exists():
+            return None
+        
+        # Try to find installation root if path is SavedVariables or deeper
+        installation_path = path
+        if "SavedVariables" in str(path):
+            root = self._find_installation_root_from_savedvariables(path)
+            if root:
+                installation_path = root
+        
+        if not self._is_wow_installation(installation_path):
+            return None
+        
+        # Create installation object
+        version = self._detect_wow_version(installation_path)
+        installation = WoWInstallation(
+            path=installation_path,
+            version=version,
+            client_version=self._get_client_version(installation_path)
+        )
+        
+        # Add to found installations if not already present
+        for existing in self._found_installations:
+            if existing.path.resolve() == installation_path:
+                return existing
+        
+        self._found_installations.append(installation)
+        return installation
